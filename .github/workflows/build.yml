@@ -1,23 +1,286 @@
-name: Build Kivy APK
-on: [push, workflow_dispatch]
+import pygame
+import sys
+import random
+import math
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
-          pip install buildozer
-      - name: Build APK
-        run: buildozer android debug
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: kivy-apk
-          path: bin/*.apk
+pygame.init()
+pygame.mixer.init()
+
+# --- Разрешение 1080x2400 (Вертикально) ---
+WIDTH = 1080
+HEIGHT = 2400
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Змейка ULTIMATE")
+clock = pygame.time.Clock()
+
+# --- Цвета ---
+GREEN = (50, 205, 50)
+DARK_GREEN = (34, 139, 34)
+RED = (220, 20, 60)
+DARK_RED = (139, 0, 0)
+BROWN = (139, 69, 19)
+BLACK = (15, 15, 20)
+WHITE = (255, 255, 255)
+GRAY = (100, 100, 100)
+LIGHT_GRAY = (200, 200, 200)
+
+# --- Звуки (если файлов нет - игра не вылетит) ---
+try:
+    eat_sound = pygame.mixer.Sound("eat.wav")
+    crash_sound = pygame.mixer.Sound("crash.wav")
+except:
+    eat_sound = None
+    crash_sound = None
+
+font = pygame.font.SysFont("Arial", 70)
+font_big = pygame.font.SysFont("Arial", 120)
+font_button = pygame.font.SysFont("Arial", 60)
+font_title = pygame.font.SysFont("Arial", 150)
+
+class Particle:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.vx = random.uniform(-8, 8)
+        self.vy = random.uniform(-8, 8)
+        self.life = 255
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += 0.5
+        self.life -= 10
+
+    def draw(self, surface):
+        if self.life > 0:
+            color = (220, 20, 60, self.life)
+            pygame.draw.circle(surface, color, (int(self.x), int(self.y)), 4)
+
+particles = []
+game_state = "MENU"
+running = True
+
+play_button = pygame.Rect(WIDTH // 2 - 250, HEIGHT // 2 + 100, 500, 150)
+restart_button = pygame.Rect(WIDTH // 2 - 200, HEIGHT // 2 + 100, 400, 120)
+menu_button = pygame.Rect(WIDTH // 2 - 200, HEIGHT // 2 + 250, 400, 120)
+
+move_timer = 0
+MOVE_DELAY = 120 
+progress = 0.0
+
+while running:
+    dt = clock.tick(60) 
+    
+    if game_state == "PLAYING":
+        snake = [[540, 1200], [520, 1200], [500, 1200]] 
+        prev_snake = list(snake) 
+        speed_x = 20
+        speed_y = 0
+        apple_x = random.randrange(40, WIDTH - 40, 20) 
+        apple_y = random.randrange(40, HEIGHT - 40, 20)
+        score = 0
+        particles = []
+        move_timer = 0
+        progress = 0.0
+        game_state = "PLAY_LOOP" 
+
+    if game_state == "MENU":
+        screen.fill(BLACK)
+        title_text = font_title.render("ЗМЕЙКА", True, GREEN)
+        screen.blit(title_text, (WIDTH // 2 - 300, HEIGHT // 2 - 400))
+        sub_text = font.render("60 FPS Edition", True, WHITE)
+        screen.blit(sub_text, (WIDTH // 2 - 160, HEIGHT // 2 - 200))
+
+        pygame.draw.rect(screen, (30, 30, 30), (play_button.x + 10, play_button.y + 10, play_button.width, play_button.height))
+        pygame.draw.rect(screen, GREEN, play_button)
+        play_text = font_button.render("ИГРАТЬ", True, BLACK)
+        screen.blit(play_text, (WIDTH // 2 - 100, HEIGHT // 2 + 150))
+        
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if play_button.collidepoint(event.pos):
+                    game_state = "PLAYING"
+
+    elif game_state == "PLAY_LOOP":
+        touch_start = None
+        is_game_over = False 
+
+        while not is_game_over:
+            dt = clock.tick(60) 
+            move_timer += dt
+            
+            progress = move_timer / MOVE_DELAY
+            if progress > 1.0:
+                progress = 1.0
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    is_game_over = True
+                    game_state = "GAME_OVER"
+                    
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    touch_start = event.pos
+                    
+                if event.type == pygame.MOUSEBUTTONUP:
+                    if touch_start:
+                        touch_end = event.pos
+                        dx = touch_end[0] - touch_start[0]
+                        dy = touch_end[1] - touch_start[1]
+                        
+                        if abs(dx) > abs(dy):
+                            if dx > 30 and speed_x == 0:
+                                speed_x = 20; speed_y = 0
+                            elif dx < -30 and speed_x == 0:
+                                speed_x = -20; speed_y = 0
+                        else:
+                            if dy > 30 and speed_y == 0:
+                                speed_x = 0; speed_y = 20
+                            elif dy < -30 and speed_y == 0:
+                                speed_x = 0; speed_y = -20
+                    touch_start = None
+
+            if move_timer >= MOVE_DELAY:
+                move_timer = 0
+                progress = 0.0
+                prev_snake = list(snake)
+                
+                new_head = [snake[0][0] + speed_x, snake[0][1] + speed_y]
+
+                if new_head[0] >= WIDTH - 20 or new_head[0] < 20 or new_head[1] >= HEIGHT - 20 or new_head[1] < 20:
+                    is_game_over = True 
+                    if crash_sound: crash_sound.play()
+                    game_state = "GAME_OVER"
+                if new_head in snake:
+                    is_game_over = True 
+                    if crash_sound: crash_sound.play()
+                    game_state = "GAME_OVER"
+
+                if not is_game_over:
+                    snake.insert(0, new_head) 
+                    if new_head[0] == apple_x and new_head[1] == apple_y:
+                        score += 1
+                        apple_x = random.randrange(40, WIDTH - 40, 20)
+                        apple_y = random.randrange(40, HEIGHT - 40, 20)
+                        if eat_sound: eat_sound.play()
+                        for _ in range(15):
+                            particles.append(Particle(apple_x + 10, apple_y + 10))
+                    else:
+                        snake.pop() 
+                    
+                    if len(prev_snake) > len(snake):
+                        prev_snake.pop()
+                    elif len(prev_snake) < len(snake):
+                        prev_snake.append(prev_snake[-1])
+
+            screen.fill(BLACK)
+            
+            for row in range(20, HEIGHT - 20, 40):
+                for col in range(20, WIDTH - 20, 40):
+                    if (row // 40 + col // 40) % 2 == 0:
+                        pygame.draw.rect(screen, (25, 25, 30), (col, row, 40, 40))
+            
+            pygame.draw.rect(screen, DARK_GREEN, (0, 0, WIDTH, 20))
+            pygame.draw.rect(screen, DARK_GREEN, (0, HEIGHT - 20, WIDTH, 20))
+            pygame.draw.rect(screen, DARK_GREEN, (0, 0, 20, HEIGHT))
+            pygame.draw.rect(screen, DARK_GREEN, (WIDTH - 20, 0, 20, HEIGHT))
+
+            pygame.draw.ellipse(screen, (40, 40, 40), (apple_x + 2, apple_y + 15, 16, 6))
+            pygame.draw.circle(screen, RED, (apple_x + 10, apple_y + 10), 10)
+            pygame.draw.line(screen, BROWN, (apple_x + 10, apple_y + 10), (apple_x + 14, apple_y), 3)
+            pygame.draw.circle(screen, WHITE, (apple_x + 6, apple_y + 6), 3)
+            pygame.draw.circle(screen, DARK_RED, (apple_x + 12, apple_y + 12), 3)
+
+            for p in particles:
+                p.update()
+                p.draw(screen)
+
+            for i in range(len(snake)):
+                if i < len(prev_snake):
+                    start_x = prev_snake[i][0]
+                    start_y = prev_snake[i][1]
+                else:
+                    start_x = snake[i][0]
+                    start_y = snake[i][1]
+
+                current_x = start_x + (snake[i][0] - start_x) * progress
+                current_y = start_y + (snake[i][1] - start_y) * progress
+
+                color_ratio = i / len(snake)
+                r = int(50 + (0 - 50) * color_ratio)
+                g = int(255 + (100 - 255) * color_ratio)
+                b = int(50 + (0 - 50) * color_ratio)
+                seg_color = (r, g, b)
+                
+                radius = 10
+                if i == 0: radius = 12
+                elif i == len(snake) - 1: radius = 7
+
+                pygame.draw.circle(screen, (30, 30, 30), (int(current_x + 11), int(current_y + 11)), radius)
+                pygame.draw.circle(screen, seg_color, (int(current_x + 10), int(current_y + 10)), radius)
+                pygame.draw.circle(screen, DARK_GREEN, (int(current_x + 10), int(current_y + 10)), radius, 2)
+                pygame.draw.circle(screen, (144, 238, 144), (int(current_x + 7), int(current_y + 7)), max(2, radius - 6))
+
+                if i == 0:
+                    look_x, look_y = 0, 0
+                    if speed_x == 20: look_x = 3
+                    elif speed_x == -20: look_x = -3
+                    elif speed_y == 20: look_y = 3
+                    elif speed_y == -20: look_y = -3
+                    
+                    pygame.draw.circle(screen, WHITE, (int(current_x + 6), int(current_y + 5)), 4)
+                    pygame.draw.circle(screen, WHITE, (int(current_x + 14), int(current_y + 5)), 4)
+                    pygame.draw.circle(screen, BLACK, (int(current_x + 6 + look_x), int(current_y + 5 + look_y)), 2)
+                    pygame.draw.circle(screen, BLACK, (int(current_x + 14 + look_x), int(current_y + 5 + look_y)), 2)
+
+            score_text = font.render(f"Счет: {score}", True, WHITE)
+            screen.blit(score_text, (50, 50))
+
+            pygame.display.flip()
+
+    elif game_state == "GAME_OVER":
+        overlay = pygame.Surface((WIDTH, HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        screen.blit(overlay, (0, 0))
+
+        game_over_text = font_big.render("GAME OVER", True, RED)
+        score_end_text = font.render(f"Твой счет: {score}", True, WHITE)
+        
+        screen.blit(game_over_text, (WIDTH // 2 - 350, HEIGHT // 2 - 250))
+        screen.blit(score_end_text, (WIDTH // 2 - 130, HEIGHT // 2 - 100))
+        
+        pygame.draw.rect(screen, (30, 30, 30), (restart_button.x + 10, restart_button.y + 10, restart_button.width, restart_button.height))
+        pygame.draw.rect(screen, GRAY, restart_button)
+        pygame.draw.rect(screen, LIGHT_GRAY, restart_button, 3)
+        restart_text = font_button.render("ЗАНОВО", True, BLACK)
+        screen.blit(restart_text, (WIDTH // 2 - 130, HEIGHT // 2 + 135))
+
+        pygame.draw.rect(screen, (30, 30, 30), (menu_button.x + 10, menu_button.y + 10, menu_button.width, menu_button.height))
+        pygame.draw.rect(screen, GRAY, menu_button)
+        pygame.draw.rect(screen, LIGHT_GRAY, menu_button, 3)
+        menu_text = font_button.render("В МЕНЮ", True, BLACK)
+        screen.blit(menu_text, (WIDTH // 2 - 130, HEIGHT // 2 + 285))
+        
+        pygame.display.flip()
+
+        waiting = True
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    waiting = False
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if restart_button.collidepoint(event.pos):
+                        game_state = "PLAYING"
+                        waiting = False
+                    elif menu_button.collidepoint(event.pos):
+                        game_state = "MENU"
+                        waiting = False
+
+pygame.quit()
+sys.exit()
